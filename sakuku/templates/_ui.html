@@ -14,11 +14,11 @@
  'clock':'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
  'plus':'M12 5v14M5 12h14',
  'bank':'M3 10l9-6 9 6M5 10v8M10 10v8M14 10v8M19 10v8M3 21h18'} %}
-{% macro ico(name, tone='lime') %}<span class="ico t-{{ tone }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ P[name] }}"/></svg></span>{% endmacro %}
+{% macro ico(name, tone='lime') %}<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="{{ P[name] }}"/></svg></span>{% endmacro %}
 {% macro trx(t, rek=False) %}
 {% set m = TIPE[t.tipe] %}
-<div class="trx">{{ ico(m[1], m[2]) }}
+<div class="led"><span class="d">{{ t.waktu.day }} {{ (t.waktu|tgl).split(' ')[1] }}<br>{{ '%02d:%02d' % (t.waktu.hour, t.waktu.minute) }}</span>
   <div class="mid"><b>{{ m[0] }}{% if t.lawan %} {{ 'ke' if t.tipe=='transfer_keluar' else 'dari' }} {{ t.lawan.nasabah.nama }}{% endif %}</b>
-  <span>{{ t.waktu|wkt }}{% if rek %} · {{ t.rekening.no_rekening }}{% endif %}{% if t.kategori %} · {{ t.kategori.nama }}{% endif %}{% if t.keterangan %} · {{ t.keterangan }}{% endif %}</span></div>
-  <div class="amt {{ 'in' if t.jumlah>0 }}">{{ '+' if t.jumlah>0 }}{{ t.jumlah|rp }}</div></div>
+  <span>{% if rek %}{{ t.rekening.no_rekening }}{% endif %}{% if rek and (t.kategori or t.keterangan) %}, {% endif %}{% if t.kategori %}{{ t.kategori.nama }}{% endif %}{% if t.kategori and t.keterangan %}, {% endif %}{{ t.keterangan }}</span></div>
+  <div class="amt {{ 'in' if t.jumlah>0 else 'out' }}">{{ '+' if t.jumlah>0 }}{{ t.jumlah|rp }}<small>saldo {{ t.saldo_akhir|rp }}</small></div></div>
 {% endmacro %}
