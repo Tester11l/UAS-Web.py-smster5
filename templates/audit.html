@@ -1,7 +1,0 @@
-{% extends "base.html" %}{% from "_ui.html" import ico %}{% block title %}Audit log{% endblock %}
-{% block content %}
-<div class="head"><div class="t">{{ ico('clock','rose') }}<h1>Audit log</h1></div></div>
-<div class="card"><div class="wrap"><table><tr><th>Waktu</th><th>Pelaku</th><th>Aksi</th><th>Detail</th></tr>
-{% for a in rows %}<tr><td>{{ a.waktu|wkt }}</td><td>{{ a.user.nama if a.user else '-' }}</td><td>{{ a.aksi }}</td><td>{{ a.detail }}</td></tr>
-{% else %}<tr><td colspan="4" class="empty">Belum ada aktivitas.</td></tr>{% endfor %}</table></div></div>
-{% endblock %}
