@@ -1,0 +1,37 @@
+{% from "_ui.html" import ico %}
+<!doctype html>
+<html lang="id"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Sakuku{% endblock %} · Sakuku</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+{% if user %}
+<header class="top"><div class="top-in">
+  <a class="brand" href="/dashboard"><span class="logo">{{ ico('bank','lime') }}</span>Sakuku</a>
+  <nav class="nav">
+    <a href="/dashboard" class="{{ 'on' if tab=='dashboard' }}">{{ ico('home','lime') }}Beranda</a>
+    <a href="/rekening" class="{{ 'on' if tab=='rekening' }}">{{ ico('card','lilac') }}Rekening</a>
+    <a href="/transaksi" class="{{ 'on' if tab=='transaksi' }}">{{ ico('swap','sky') }}Transaksi</a>
+    <a href="/laporan" class="{{ 'on' if tab=='laporan' }}">{{ ico('file','amber') }}Laporan</a>
+    {% if admin %}
+    <a href="/master/nasabah" class="{{ 'on' if tab in ('nasabah','jenis','kategori','biaya','petugas') }}">{{ ico('layers','mint') }}Master</a>
+    <a href="/audit" class="{{ 'on' if tab=='audit' }}">{{ ico('clock','rose') }}Audit</a>
+    {% endif %}
+  </nav>
+  <span class="who">{{ user.nama }}{% if admin %} · petugas{% endif %}</span>
+  <a class="btn sec sm" href="/logout">Keluar</a>
+</div></header>
+<main>
+  {% if flash %}<div class="msg {{ flash[0] }}">{{ flash[1] }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+{% else %}
+<div class="auth"><div class="box">
+  <div class="brand"><span class="logo">{{ ico('bank','lime') }}</span>Sakuku</div>
+  {% if flash %}<div class="msg {{ flash[0] }}">{{ flash[1] }}</div>{% endif %}
+  {% block auth %}{% endblock %}
+  <p style="text-align:center;color:var(--muted);font-size:12px;margin-top:16px">Simulasi perbankan untuk tugas kuliah. Jangan masukkan data asli.</p>
+</div></div>
+{% endif %}
+</body></html>

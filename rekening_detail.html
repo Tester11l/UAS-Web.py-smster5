@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% from "_ui.html" import ico, trx %}{% block title %}Rekening {{ r.no_rekening }}{% endblock %}
+{% block content %}
+<div class="hero">
+  <div><small>{{ r.jenis.nama }} · {{ r.nasabah.nama }}</small><div class="big">{{ r.saldo|rp }}</div>
+  <small>No. {{ r.no_rekening }} · dibuka {{ r.dibuka|tgl }} · <span class="tag {{ r.status }}">{{ r.status }}</span></small></div>
+  <div class="acts noprint">
+    {% if r.status=='aktif' %}<a class="btn" href="/transaksi#transfer">Transfer</a>{% endif %}
+    {% if admin %}
+      {% for a, l in [('aktif','Aktifkan'),('beku','Bekukan'),('tutup','Tutup')] if a!=r.status %}
+      <form method="post" action="/rekening/{{ r.id }}/status" style="display:inline"><input type="hidden" name="aksi" value="{{ a }}">
+      <button class="btn ghost" {{ 'onclick="return confirm(\'Tutup rekening ini?\')"'|safe if a=='tutup' }}>{{ l }}</button></form>{% endfor %}
+    {% endif %}
+  </div>
+</div>
+<div class="card">
+  <div class="head noprint"><h2 style="margin:0">Mutasi rekening</h2>
+    <div><button class="btn sec sm" onclick="window.print()">Cetak</button>
+    <a class="btn sm" href="/rekening/{{ r.id }}/csv?dari={{ dari }}&sampai={{ sampai }}">Unduh CSV</a></div></div>
+  <form class="row noprint" method="get">
+    <label>Dari<input type="date" name="dari" value="{{ dari }}"></label>
+    <label>Sampai<input type="date" name="sampai" value="{{ sampai }}"></label>
+    <button class="btn dark">Tampilkan</button></form>
+  <div class="sum"><div><small>Uang masuk</small><b style="color:var(--green)">{{ masuk|rp }}</b></div>
+  <div><small>Uang keluar</small><b>{{ keluar|rp }}</b></div><div><small>Jumlah transaksi</small><b>{{ rows|length }}</b></div></div>
+  {% for t in rows %}{{ trx(t) }}{% else %}<div class="empty">Belum ada transaksi pada periode ini.</div>{% endfor %}
+</div>
+{% endblock %}
