@@ -14,7 +14,7 @@ def today() -> date:
     return now().date()
 
 
-url = os.getenv("DATABASE_URL", "sqlite:///./sakuku.db")
+url = os.getenv("DATABASE_URL", "postgresql://neondb_owner:npg_JTevSOKdj3R6@ep-ancient-wind-b305j5ix-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 if url.startswith("postgres://"):
     url = url.replace("postgres://", "postgresql+psycopg2://", 1)
 elif url.startswith("postgresql://"):
