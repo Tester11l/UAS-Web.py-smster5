@@ -40,7 +40,13 @@
     {% if r.status!='aktif' %}<span class="tag {{ r.status }}">{{ r.status }}</span>{% endif %}</a>
   {% endfor %}
 </div>
-{% else %}<div class="card empty">Kamu belum punya rekening. <a href="/rekening">Buka rekening pertama</a></div>{% endif %}
+{% else %}
+<div class="card empty-state">
+  <div class="empty-icon">{{ ico('card','sky') }}</div>
+  <div><b>Mulai rekening pertamamu</b><span>Kamu belum memiliki rekening aktif.</span></div>
+  <a class="btn" href="/rekening">Ajukan rekening</a>
+</div>
+{% endif %}
 {% endif %}
 
 <div class="grid2">
@@ -51,8 +57,8 @@
     <div class="chart">{% for c in chart %}<div class="col"><div class="bars">
       <div class="bar m" style="height:{{ c.hm }}%" title="{{ c.masuk|rp }}"></div><div class="bar k" style="height:{{ c.hk }}%" title="{{ c.keluar|rp }}"></div></div>
       <label>{{ c.label }}</label></div>{% endfor %}</div>
-    <div class="legend"><span><i style="background:var(--lime)"></i>{{ 'Setoran' if admin else 'Uang masuk' }}</span>
-    <span><i style="background:var(--forest)"></i>{{ 'Penarikan' if admin else 'Uang keluar' }}</span></div>
+    <div class="legend"><span><i class="m"></i>{{ 'Setoran' if admin else 'Uang masuk' }}</span>
+    <span><i class="k"></i>{{ 'Penarikan' if admin else 'Uang keluar' }}</span></div>
   </div>
 </div>
 {% endblock %}

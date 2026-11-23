@@ -16,6 +16,17 @@ Lokal otomatis pakai SQLite (`sakuku.db`). Untuk memakai Neon:
 - Neon: salin connection string. Tabel dibuat otomatis, `schema.sql` hanya opsional.
 - Render (Web Service, Free): Build `pip install -r requirements.txt`, Start `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - Environment: `DATABASE_URL`, `SECRET_KEY` (string acak panjang), `ADMIN_PASSWORD`, `PYTHON_VERSION=3.12.7`
+- 2FA authenticator bersifat opsional per akun. Nasabah mengaktifkannya dari Profil dengan memindai QR atau memasukkan kunci manual, lalu mengonfirmasi kode. Simpan recovery code yang ditampilkan satu kali di tempat aman; setiap kode hanya dapat dipakai sekali.
+- Gunakan `SECRET_KEY` acak yang kuat dan stabil di semua restart/deploy. Sakuku mengenkripsi secret authenticator menggunakan key yang diturunkan dari `SECRET_KEY`; menggantinya akan membuat secret 2FA yang sudah tersimpan tidak dapat dibaca.
+- Untuk database Neon yang sudah ada, jalankan SQL migrasi berikut secara manual di Neon SQL Editor:
+
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(256);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_pending_secret VARCHAR(256);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_pending_at TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery_codes VARCHAR(2000);
+```
 
 ## Pemetaan ke ketentuan tugas
 1. Basis data → PostgreSQL (Neon): users, nasabah, jenis_rekening, kategori_transaksi, biaya_admin, rekening, transaksi, audit_log

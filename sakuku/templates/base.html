@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/static/style.css">
 </head><body>
 {% if user %}
-<header class="top"><div class="top-in">
+<header class="top{% if admin %} top-admin{% endif %}"><div class="top-in">
   <a class="brand" href="/dashboard"><span class="logo">{{ ico('bank','lime') }}</span>Sakuku</a>
   <nav class="nav">
     <a href="/dashboard" class="{{ 'on' if tab=='dashboard' }}">{{ ico('home','lime') }}Beranda</a>
@@ -16,8 +16,10 @@
     <a href="/laporan" class="{{ 'on' if tab=='laporan' }}">{{ ico('file','amber') }}Laporan</a>
     {% if admin %}
     <a href="/master/nasabah" class="{{ 'on' if tab in ('nasabah','jenis','kategori','biaya','petugas') }}">{{ ico('layers','mint') }}Master</a>
+    <a href="/limit-transfer" class="{{ 'on' if tab=='limit' }}">{{ ico('shield','amber') }}Limit</a>
     <a href="/audit" class="{{ 'on' if tab=='audit' }}">{{ ico('clock','rose') }}Audit</a>
     {% endif %}
+    <a href="/profil" class="{{ 'on' if tab=='profil' }}">{{ ico('users','sky') }}Profil</a>
   </nav>
   <span class="who">{{ user.nama }}{% if admin %} · petugas{% endif %}</span>
   <a class="btn sec sm" href="/logout">Keluar</a>

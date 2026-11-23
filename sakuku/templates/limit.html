@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% from "_ui.html" import ico %}{% block title %}Limit transfer{% endblock %}
+{% block content %}
+<div class="head"><div class="t">{{ ico('shield','amber') }}<h1>Limit transfer nasabah</h1></div>
+  <form class="row noprint" method="get"><input name="q" value="{{ q }}" placeholder="Cari nama atau NIK"><button class="btn sec">Cari</button></form></div>
+<div class="card">
+  <div class="wrap"><table>
+    <tr><th>NIK</th><th>Nama</th><th>Limit per transaksi</th><th>Limit harian</th><th></th></tr>
+    {% for n in rows %}
+    {% set l=limits[n.id] if n.id in limits else none %}
+    <tr>
+      <td>{{ n.nik }}</td><td><b>{{ n.nama }}</b></td>
+      <td colspan="3">
+        <form class="limit-row" method="post" action="/limit-transfer/{{ n.id }}">
+          <input name="per_transaksi" aria-label="Limit per transaksi" inputmode="numeric" value="{{ l.per_transaksi if l else 10000000 }}" required>
+          <input name="harian" aria-label="Limit harian" inputmode="numeric" value="{{ l.harian if l else 50000000 }}" required>
+          <button class="btn sec sm">Simpan</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="empty">Tidak ada nasabah.</td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}

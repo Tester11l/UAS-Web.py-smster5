@@ -1,0 +1,71 @@
+{% extends "base.html" %}{% from "_ui.html" import ico %}{% block title %}Profil{% endblock %}
+{% block content %}
+<div class="head"><div class="t">{{ ico('users','sky') }}<h1>Profil & keamanan</h1></div></div>
+<div class="grid2">
+  <div class="card profile-card profile-edit-card" id="data-pribadi">
+    <h2>{{ ico('users','sky') }}Data pribadi</h2>
+    <form class="form-stack" method="post" action="/profil">
+      <label>Nama lengkap<input name="nama" value="{{ nasabah.nama if nasabah else user.nama }}" required></label>
+      {% if nasabah %}
+      <label>Alamat<textarea name="alamat" rows="3">{{ nasabah.alamat }}</textarea></label>
+      <label>Nomor HP<input name="no_hp" value="{{ nasabah.no_hp }}" inputmode="tel"></label>
+      {% endif %}
+      <hr>
+      <h3 class="password-heading" id="ubah-password">{{ ico('shield','lilac') }}Ganti password</h3>
+      <label>Password lama<input name="password_lama" type="password" autocomplete="current-password"></label>
+      <label>Password baru (minimal 6 karakter)<input name="password_baru" type="password" minlength="6" autocomplete="new-password"></label>
+      <label>Konfirmasi password baru<input name="password_konfirmasi" type="password" minlength="6" autocomplete="new-password"></label>
+      <button class="btn">Simpan perubahan</button>
+    </form>
+  </div>
+  <div class="card profile-card profile-summary-card">
+    <h2>{{ ico('shield','mint') }}Informasi akun</h2>
+    <dl class="detail-list">
+      <dt>Username</dt><dd>{{ user.username }}</dd>
+      <dt>Peran</dt><dd>{{ 'Petugas' if admin else 'Nasabah' }}</dd>
+      {% if nasabah %}<dt>NIK</dt><dd>{{ nasabah.nik }}</dd>{% endif %}
+    </dl>
+    <section class="security-panel" aria-labelledby="security-title">
+      <div class="security-heading">
+        <div><small>Status keamanan</small><b id="security-title">{{ security.status }}</b></div>
+        <span class="security-badge {{ security.status_class }}">{{ 'Aktif' if security.totp_enabled else ('Perlu ditingkatkan' if security.status_class=='warning' else 'Perlu tindakan') }}</span>
+      </div>
+      <p class="security-note">{% if security.totp_enabled %}Kode dari authenticator diminta setiap kali masuk. Simpan recovery code di tempat aman.{% elif security.password_protected %}Password terlindungi, tetapi verifikasi dua langkah belum aktif.{% else %}Format perlindungan password perlu diperiksa.{% endif %}</p>
+      <div class="security-check">
+        <span class="security-dot {{ 'good' if security.password_protected else 'bad' }}"></span>
+        <div><b>Kata sandi</b><small>{{ 'Disimpan dengan hash PBKDF2.' if security.password_protected else 'Format perlindungan sandi perlu diperiksa.' }}</small></div>
+        <a href="#ubah-password">Ubah</a>
+      </div>
+      {% if nasabah %}
+      <div class="security-check">
+        <span class="security-dot {{ 'good' if security.phone_registered else 'warn' }}"></span>
+        <div><b>Nomor HP</b><small>{% if security.phone_registered %}Sudah dicatat, tetapi belum diverifikasi.{% else %}Belum ditambahkan ke profil.{% endif %}</small></div>
+        <a href="#data-pribadi">Lihat</a>
+      </div>
+      {% endif %}
+      <div class="security-check">
+        <span class="security-dot {{ 'good' if security.totp_enabled else 'warn' }}"></span>
+        <div><b>Verifikasi dua langkah</b><small>{{ 'Aktif: kode authenticator diminta saat login.' if security.totp_enabled else 'Belum diaktifkan.' }}</small></div>
+      </div>
+      {% if security.totp_enabled %}
+      <form class="security-disable-form" method="post" action="/profil/2fa/disable">
+        <label>Password akun<input name="password" type="password" autocomplete="current-password" required></label>
+        <label>Kode authenticator atau recovery code<input name="code" autocomplete="one-time-code" required></label>
+        <button class="btn sec" type="submit">Nonaktifkan 2FA</button>
+      </form>
+      {% else %}
+      <form class="security-enable-form" method="post" action="/profil/2fa/setup">
+        <button class="btn" type="submit">Aktifkan 2FA</button>
+      </form>
+      {% endif %}
+    </section>
+    {% if limit %}
+    <h2 style="margin-top:24px">Limit transfer</h2>
+    <dl class="detail-list">
+      <dt>Per transaksi</dt><dd>{{ limit.per_transaksi|rp }}</dd>
+      <dt>Per hari</dt><dd>{{ limit.harian|rp }}</dd>
+    </dl>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

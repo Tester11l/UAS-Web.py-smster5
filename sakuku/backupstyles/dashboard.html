@@ -1,0 +1,64 @@
+{% extends "base.html" %}{% from "_ui.html" import ico, trx %}{% block title %}Beranda{% endblock %}
+{% block content %}
+<div class="hero">
+  <div><small>{{ 'Total dana nasabah' if admin else 'Total saldo kamu' }}</small>
+  <div class="big">{{ (stat.dana if admin else total)|rp }}</div>
+  <small>Halo, {{ user.nama.split()[0] }}</small></div>
+  <div class="acts">
+    {% if admin %}<a class="btn" href="/transaksi#setor">Setor tunai</a><a class="btn ghost" href="/transaksi#tarik">Tarik tunai</a>
+    {% else %}<a class="btn" href="/transaksi#transfer">Transfer</a><a class="btn ghost" href="/rekening">Buka rekening</a>{% endif %}
+  </div>
+</div>
+
+{% if admin %}
+<div class="tiles">
+  <div class="tile">{{ ico('users','sky') }}<div>{{ stat.nasabah }}<small>Nasabah</small></div></div>
+  <div class="tile">{{ ico('card','lilac') }}<div>{{ stat.rekening }}<small>Rekening aktif</small></div></div>
+  <div class="tile">{{ ico('swap','mint') }}<div>{{ stat.hari_ini }}<small>Transaksi hari ini</small></div></div>
+  <div class="tile">{{ ico('percent','rose') }}<div>{{ stat.fee|rp }}<small>Pendapatan biaya</small></div></div>
+</div>
+<div class="tiles">
+  <a class="tile" href="/transaksi#setor">{{ ico('down','lime') }}Setor</a>
+  <a class="tile" href="/transaksi#tarik">{{ ico('up','amber') }}Tarik</a>
+  <a class="tile" href="/rekening">{{ ico('plus','lilac') }}Buka rekening</a>
+  <a class="tile" href="/master/nasabah">{{ ico('users','sky') }}Nasabah</a>
+  <a class="tile" href="/laporan?r=saldo">{{ ico('file','rose') }}Laporan</a>
+</div>
+{% else %}
+<div class="tiles">
+  <a class="tile" href="/transaksi#transfer">{{ ico('swap','sky') }}Transfer</a>
+  <a class="tile" href="/rekening">{{ ico('card','lime') }}Rekening</a>
+  <a class="tile" href="/laporan?r=mutasi">{{ ico('file','lilac') }}Mutasi</a>
+  <a class="tile" href="/laporan?r=kategori">{{ ico('chart','amber') }}Pengeluaran</a>
+</div>
+{% if reks %}
+<h2>Kantong kamu</h2>
+<div class="pockets">
+  {% for r in reks %}{% set tones = ['lime','sky','lilac','amber','mint'] %}{% set tn = tones[loop.index0 % 5] %}
+  <a class="pocket t-{{ tn }}" href="/rekening/{{ r.id }}">{{ ico('card', tn) }}
+    <div class="no">{{ r.jenis.nama }} · {{ r.no_rekening }}</div><b>{{ r.saldo|rp }}</b>
+    {% if r.status!='aktif' %}<span class="tag {{ r.status }}">{{ r.status }}</span>{% endif %}</a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">
+  <div class="empty-icon">{{ ico('card','sky') }}</div>
+  <div><b>Mulai rekening pertamamu</b><span>Kamu belum memiliki rekening aktif.</span></div>
+  <a class="btn" href="/rekening">Ajukan rekening</a>
+</div>
+{% endif %}
+{% endif %}
+
+<div class="grid2">
+  <div class="card"><h2>{{ ico('clock','sky') }}Aktivitas terbaru</h2>
+    {% for t in recent %}{{ trx(t, admin) }}{% else %}<div class="empty">Belum ada transaksi.</div>{% endfor %}
+  </div>
+  <div class="card"><h2>{{ ico('chart','lilac') }}6 bulan terakhir</h2>
+    <div class="chart">{% for c in chart %}<div class="col"><div class="bars">
+      <div class="bar m" style="height:{{ c.hm }}%" title="{{ c.masuk|rp }}"></div><div class="bar k" style="height:{{ c.hk }}%" title="{{ c.keluar|rp }}"></div></div>
+      <label>{{ c.label }}</label></div>{% endfor %}</div>
+    <div class="legend"><span><i class="m"></i>{{ 'Setoran' if admin else 'Uang masuk' }}</span>
+    <span><i class="k"></i>{{ 'Penarikan' if admin else 'Uang keluar' }}</span></div>
+  </div>
+</div>
+{% endblock %}

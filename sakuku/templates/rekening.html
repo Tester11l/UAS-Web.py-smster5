@@ -2,20 +2,61 @@
 {% block content %}
 <div class="head"><div class="t">{{ ico('card','lilac') }}<h1>Rekening</h1></div>
   {% if admin %}<form class="row noprint" method="get"><input name="q" value="{{ q }}" placeholder="No. rekening / nama" aria-label="Cari"><button class="btn sec">Cari</button></form>{% endif %}</div>
-<div class="card">
+<div class="card account-request-card" id="rekening-form">
+  {% if admin %}
   <h2>{{ ico('plus','lime') }}Buka rekening baru</h2>
   <form class="row" method="post" action="/rekening/buka">
-    {% if admin %}<label>Nasabah<select name="nasabah_id" required>{% for n in nasabah %}<option value="{{ n.id }}">{{ n.nik }} · {{ n.nama }}</option>{% endfor %}</select></label>{% endif %}
+    <label>Nasabah<select name="nasabah_id" required>{% for n in nasabah %}<option value="{{ n.id }}">{{ n.nik }} · {{ n.nama }}</option>{% endfor %}</select></label>
     <label>Jenis rekening<select name="jenis_id" required>{% for j in jenis %}<option value="{{ j.id }}">{{ j.nama }} (min. {{ j.saldo_min|rp }})</option>{% endfor %}</select></label>
     <button class="btn">Buka rekening</button>
   </form>
+  {% else %}
+  <h2>{{ ico('plus','lime') }}Ajukan pembukaan rekening</h2>
+  <form class="row" method="post" action="/rekening/pengajuan">
+    <label>Jenis rekening<select name="jenis_id" required>{% for j in jenis %}<option value="{{ j.id }}">{{ j.nama }} (saldo minimum {{ j.saldo_min|rp }})</option>{% endfor %}</select></label>
+    <label>Catatan (opsional)<input name="catatan" maxlength="300" placeholder="Contoh: rekening untuk tabungan"></label>
+    <button class="btn">Ajukan rekening</button>
+  </form>
+  {% endif %}
 </div>
-<div class="card">
+{% if pengajuan %}
+<div class="card account-requests-card">
+  <h2>{{ ico('clock','amber') }}{{ 'Pengajuan menunggu persetujuan' if admin else 'Status pengajuan rekening' }}</h2>
+  <div class="wrap"><table>
+    <tr>{% if admin %}<th>Nasabah</th>{% endif %}<th>Jenis rekening</th><th>Status</th><th>Diajukan</th>{% if admin %}<th></th>{% endif %}</tr>
+    {% for p in pengajuan %}
+    <tr>{% if admin %}<td>{{ p.nasabah.nama }}</td>{% endif %}<td>{{ p.jenis.nama }}</td>
+      <td><span class="tag {{ 'aktif' if p.status=='disetujui' else 'beku' if p.status=='menunggu' else 'tutup' }}">{{ p.status }}</span></td>
+      <td>{{ p.dibuat|wkt }}</td>
+      {% if admin and p.status=='menunggu' %}<td class="num">
+        <form class="inline-form" method="post" action="/rekening/pengajuan/{{ p.id }}/proses">
+          <input type="hidden" name="aksi" value="disetujui"><button class="btn sm">Setujui</button></form>
+        <form class="inline-form" method="post" action="/rekening/pengajuan/{{ p.id }}/proses">
+          <input type="hidden" name="aksi" value="ditolak"><button class="btn del sm">Tolak</button></form>
+      </td>{% endif %}</tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endif %}
+<div class="card account-list-card">
   {% if rows %}<div class="wrap"><table>
     <tr><th>No. rekening</th><th>Nasabah</th><th>Jenis</th><th>Status</th><th class="num">Saldo</th><th></th></tr>
     {% for r in rows %}<tr><td><b>{{ r.no_rekening }}</b></td><td>{{ r.nasabah.nama }}</td><td>{{ r.jenis.nama }}</td>
       <td><span class="tag {{ r.status }}">{{ r.status }}</span></td><td class="num"><b>{{ r.saldo|rp }}</b></td>
       <td class="num"><a class="btn sec sm" href="/rekening/{{ r.id }}">Detail & mutasi</a></td></tr>{% endfor %}
-  </table></div>{% else %}<div class="empty">Belum ada rekening.</div>{% endif %}
+  </table></div>{% else %}
+  <div class="empty-state account-empty">
+    {{ ico('card','sky') }}
+    <div><b>{{ 'Belum ada rekening' if admin else 'Rekening kamu belum tersedia' }}</b>
+      <span>{{ 'Rekening yang dibuat akan muncul di daftar ini.' if admin else 'Ajukan pembukaan rekening untuk mulai menggunakan layanan Sakuku.' }}</span></div>
+    {% if not admin %}<a class="btn" href="#rekening-form">Ajukan rekening</a>{% endif %}
+  </div>{% endif %}
 </div>
+{% if pagination and pagination.pages > 1 %}
+<div class="pagination">
+  {% if pagination.page > 1 %}<a class="btn sec sm" href="/rekening?q={{ q }}&pagination_page={{ pagination.page-1 }}">Sebelumnya</a>{% endif %}
+  <span>Halaman {{ pagination.page }} dari {{ pagination.pages }}</span>
+  {% if pagination.page < pagination.pages %}<a class="btn sec sm" href="/rekening?q={{ q }}&pagination_page={{ pagination.page+1 }}">Berikutnya</a>{% endif %}
+</div>
+{% endif %}
 {% endblock %}

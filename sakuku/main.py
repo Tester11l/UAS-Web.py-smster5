@@ -1,19 +1,32 @@
-import csv, hashlib, hmac, io, os, re, secrets
+import base64, csv, hashlib, hmac, io, json, os, re, secrets
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
+from time import time as unix_time
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
+import pyotp
+import qrcode
+from cryptography.fernet import Fernet, InvalidToken
+from qrcode.image.svg import SvgPathImage
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
 
 from models import (AuditLog, BiayaAdmin, Base, JenisRekening, Kategori, Nasabah, Rekening,
-                    SessionLocal, Transaksi, User, engine, now, today)
+                    LimitTransfer, PengajuanRekening, SessionLocal, Transaksi, User, engine, now, today)
+
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-ganti-di-produksi")
+TOTP_LOGIN_CHALLENGE_SECONDS = 5 * 60
+TOTP_CIPHER = Fernet(base64.urlsafe_b64encode(
+    hashlib.sha256(f"{SECRET_KEY}:sakuku:totp".encode()).digest()))
 
 BLN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
 TIPE = {  # tipe: (label, ikon, warna)
@@ -56,12 +69,24 @@ def seed():
 @asynccontextmanager
 async def lifespan(app):
     Base.metadata.create_all(engine)
+    if engine.dialect.name == "sqlite":
+        sqlite_columns = {
+            "totp_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+            "totp_secret": "VARCHAR(256)",
+            "totp_pending_secret": "VARCHAR(256)",
+            "totp_pending_at": "DATETIME",
+            "totp_recovery_codes": "VARCHAR(2000)",
+        }
+        with engine.begin() as conn:
+            existing = {column["name"] for column in inspect(conn).get_columns("users")}
+            for name, declaration in sqlite_columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {name} {declaration}"))
     seed()
     yield
 
-
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-ganti-di-produksi"), max_age=60 * 60 * 8)
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=60 * 60 * 8)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["rp"] = lambda v: ("-" if (v or 0) < 0 else "") + "Rp " + f"{abs(int(v or 0)):,}".replace(",", ".")
@@ -115,6 +140,71 @@ def require_admin(user: User = Depends(require_user)) -> User:
 def page(request, tpl, user=None, **ctx):
     return templates.TemplateResponse(request, tpl, {"user": user, "admin": bool(user and user.role == "admin"),
                                                      "flash": request.session.pop("flash", None), **ctx})
+
+
+def encrypt_totp_secret(secret: str) -> str:
+    return TOTP_CIPHER.encrypt(secret.encode()).decode()
+
+
+def decrypt_totp_secret(encrypted: str) -> str:
+    return TOTP_CIPHER.decrypt(encrypted.encode()).decode()
+
+
+def recovery_hash(code: str) -> str:
+    normalized = code.replace("-", "").strip().upper()
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def new_recovery_codes():
+    codes = [secrets.token_hex(5).upper() for _ in range(8)]
+    display = [f"{code[:5]}-{code[5:]}" for code in codes]
+    hashed = [recovery_hash(code) for code in codes]
+    return display, json.dumps(hashed)
+
+
+def verify_totp_or_recovery(user: User, code: str, secret: str):
+    normalized = re.sub(r"\s+", "", code or "").upper()
+    if re.fullmatch(r"\d{6}", normalized) and pyotp.TOTP(secret).verify(normalized, valid_window=1):
+        return True, False
+    hashes = json.loads(user.totp_recovery_codes or "[]")
+    if not isinstance(hashes, list) or not all(isinstance(value, str) for value in hashes):
+        raise ValueError("Kode pemulihan akun tidak valid.")
+    candidate = recovery_hash(normalized)
+    for index, value in enumerate(hashes):
+        if hmac.compare_digest(candidate, value):
+            hashes.pop(index)
+            user.totp_recovery_codes = json.dumps(hashes)
+            return True, True
+    return False, False
+
+
+def pending_totp_secret(user: User):
+    if not user.totp_pending_secret or not user.totp_pending_at:
+        return None
+    if now() - user.totp_pending_at > timedelta(minutes=10):
+        user.totp_pending_secret = None
+        user.totp_pending_at = None
+        return None
+    return decrypt_totp_secret(user.totp_pending_secret)
+
+
+def pending_totp_login_user(request: Request, db: Session):
+    uid = request.session.get("2fa_uid")
+    started_at = request.session.get("2fa_started_at")
+    user = db.get(User, uid) if uid else None
+    valid_challenge = (isinstance(started_at, int) and
+                       0 <= unix_time() - started_at <= TOTP_LOGIN_CHALLENGE_SECONDS)
+    if not user or not user.totp_enabled or not user.totp_secret or not valid_challenge:
+        request.session.clear()
+        return None
+    return user
+
+
+def qr_data_uri(uri: str) -> str:
+    image = qrcode.make(uri, image_factory=SvgPathImage, box_size=5, border=2)
+    output = io.BytesIO()
+    image.save(output)
+    return "data:image/svg+xml;base64," + base64.b64encode(output.getvalue()).decode()
 
 
 def go(url): return RedirectResponse(url, 303)
@@ -200,6 +290,14 @@ def ids_milik(db, user):
     return list(db.scalars(select(Rekening.id).where(Rekening.nasabah_id == user.nasabah_id)))
 
 
+def halaman(page: int, per_page: int, total: int):
+    page = max(1, int(page or 1))
+    per_page = max(10, min(100, int(per_page or 20)))
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, pages)
+    return page, per_page, pages
+
+
 # ---------- AUTH ----------
 @app.get("/")
 def root(request: Request):
@@ -218,7 +316,45 @@ async def login(request: Request, db: Session = Depends(get_db)):
     if not u or not check_pw(f.get("password", ""), u.password):
         flash(request, "Username atau password salah.", "err")
         return go("/login")
+    request.session.clear()
+    if u.totp_enabled:
+        request.session["2fa_uid"] = u.id
+        request.session["2fa_started_at"] = int(unix_time())
+        return go("/login/2fa")
     request.session["uid"] = u.id
+    return go("/dashboard")
+
+
+@app.get("/login/2fa")
+def login_2fa_form(request: Request, db: Session = Depends(get_db)):
+    user = pending_totp_login_user(request, db)
+    if not user:
+        flash(request, "Sesi verifikasi berakhir atau tidak valid. Silakan masuk kembali.", "err")
+        return go("/login")
+    return page(request, "login_2fa.html", username=user.username)
+
+
+@app.post("/login/2fa")
+async def login_2fa(request: Request, db: Session = Depends(get_db)):
+    user = pending_totp_login_user(request, db)
+    if not user:
+        flash(request, "Sesi verifikasi berakhir atau tidak valid. Silakan masuk kembali.", "err")
+        return go("/login")
+    form = await request.form()
+    try:
+        valid, used_recovery = verify_totp_or_recovery(
+            user, form.get("code", ""), decrypt_totp_secret(user.totp_secret))
+    except (InvalidToken, UnicodeDecodeError, ValueError):
+        request.session.clear()
+        flash(request, "Pengaturan 2FA tidak dapat dibaca. Hubungi petugas.", "err")
+        return go("/login")
+    if not valid:
+        flash(request, "Kode verifikasi tidak sesuai.", "err")
+        return go("/login/2fa")
+    if used_recovery:
+        db.commit()
+    request.session.clear()
+    request.session["uid"] = user.id
     return go("/dashboard")
 
 
@@ -322,7 +458,7 @@ def cfg(name):
 
 @app.get("/master/{name}")
 def master_list(name: str, request: Request, q: str = "", edit: int = 0,
-                user=Depends(require_admin), db: Session = Depends(get_db)):
+                pagination_page: int = 1, user=Depends(require_admin), db: Session = Depends(get_db)):
     c = cfg(name)
     M = c["model"]
     stmt = select(M).order_by(M.id.desc())
@@ -332,8 +468,12 @@ def master_list(name: str, request: Request, q: str = "", edit: int = 0,
         stmt = stmt.where(getattr(M, c["fields"][0][0]).ilike(f"%{q}%") | getattr(M, c["fields"][1][0]).ilike(f"%{q}%")
                           if len(c["fields"]) > 1 and c["fields"][1][2] == "text"
                           else getattr(M, c["fields"][0][0]).ilike(f"%{q}%"))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    page_no, per_page, pages = halaman(pagination_page, 20, total)
     item = db.get(M, edit) if edit else None
-    return page(request, "master.html", user, name=name, c=c, rows=db.scalars(stmt).all(), q=q, item=item, tab=name)
+    rows = db.scalars(stmt.limit(per_page).offset((page_no - 1) * per_page)).all()
+    return page(request, "master.html", user, name=name, c=c, rows=rows, q=q, item=item, tab=name,
+                edit=edit, pagination={"page": page_no, "pages": pages, "per": per_page, "total": total})
 
 
 @app.post("/master/{name}/simpan")
@@ -389,15 +529,28 @@ def master_delete(name: str, id: int, request: Request, user=Depends(require_adm
 
 # ---------- REKENING ----------
 @app.get("/rekening")
-def rekening_list(request: Request, q: str = "", user=Depends(require_user), db: Session = Depends(get_db)):
+def rekening_list(request: Request, q: str = "", pagination_page: int = 1, user=Depends(require_user),
+                  db: Session = Depends(get_db)):
     stmt = select(Rekening).join(Nasabah).order_by(Rekening.id.desc())
     if user.role != "admin":
         stmt = stmt.where(Rekening.nasabah_id == user.nasabah_id)
     if q:
         stmt = stmt.where(Rekening.no_rekening.contains(q) | Nasabah.nama.ilike(f"%{q}%"))
-    return page(request, "rekening.html", user, tab="rekening", rows=db.scalars(stmt).all(), q=q,
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    page_no, per_page, pages = halaman(pagination_page, 20, total)
+    rows = db.scalars(stmt.limit(per_page).offset((page_no - 1) * per_page)).all()
+    pengajuan = []
+    if user.role == "admin":
+        pengajuan = db.scalars(select(PengajuanRekening).where(
+            PengajuanRekening.status == "menunggu").order_by(PengajuanRekening.dibuat.desc())).all()
+    else:
+        pengajuan = db.scalars(select(PengajuanRekening).where(
+            PengajuanRekening.nasabah_id == user.nasabah_id).order_by(PengajuanRekening.dibuat.desc())).all()
+    return page(request, "rekening.html", user, tab="rekening", rows=rows, q=q,
                 nasabah=db.scalars(select(Nasabah).order_by(Nasabah.nama)).all() if user.role == "admin" else [],
-                jenis=db.scalars(select(JenisRekening).order_by(JenisRekening.id)).all())
+                jenis=db.scalars(select(JenisRekening).order_by(JenisRekening.id)).all(),
+                pengajuan=pengajuan, pagination={"page": page_no, "pages": pages, "per": per_page,
+                                                  "total": total})
 
 
 @app.post("/rekening/buka")
@@ -454,6 +607,58 @@ async def rekening_status(id: int, request: Request, user=Depends(require_admin)
         db.commit()
         flash(request, f"Status rekening menjadi {aksi}.")
     return go(f"/rekening/{id}")
+
+
+@app.post("/rekening/pengajuan")
+async def rekening_pengajuan(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    if user.role != "nasabah":
+        raise Forbidden()
+    f = await request.form()
+    try:
+        jenis = db.get(JenisRekening, int(f["jenis_id"]))
+    except (KeyError, ValueError, TypeError):
+        jenis = None
+    if not jenis:
+        flash(request, "Jenis rekening belum dipilih.", "err")
+        return go("/rekening")
+    ada = db.scalar(select(PengajuanRekening.id).where(
+        PengajuanRekening.nasabah_id == user.nasabah_id,
+        PengajuanRekening.jenis_id == jenis.id,
+        PengajuanRekening.status == "menunggu"))
+    if ada:
+        flash(request, "Pengajuan untuk jenis rekening ini masih menunggu persetujuan.", "err")
+        return go("/rekening")
+    db.add(PengajuanRekening(nasabah_id=user.nasabah_id, jenis_id=jenis.id,
+                             catatan=f.get("catatan", "").strip()[:300]))
+    log(db, user, "ajukan_rekening", f"{jenis.nama}")
+    db.commit()
+    flash(request, "Pengajuan rekening dikirim. Menunggu persetujuan petugas.")
+    return go("/rekening")
+
+
+@app.post("/rekening/pengajuan/{id}/proses")
+async def rekening_pengajuan_proses(id: int, request: Request, user=Depends(require_admin),
+                                    db: Session = Depends(get_db)):
+    f = await request.form()
+    aksi = f.get("aksi")
+    pengajuan = db.get(PengajuanRekening, id)
+    if not pengajuan or aksi not in ("disetujui", "ditolak"):
+        raise Forbidden()
+    if pengajuan.status != "menunggu":
+        flash(request, "Pengajuan sudah diproses.", "err")
+        return go("/rekening")
+    if aksi == "disetujui":
+        r = Rekening(no_rekening=no_baru(db), nasabah_id=pengajuan.nasabah_id,
+                     jenis_id=pengajuan.jenis_id)
+        db.add(r)
+    pengajuan.status = aksi
+    pengajuan.catatan = f.get("catatan", "").strip()[:300] or pengajuan.catatan
+    pengajuan.diproses = now()
+    pengajuan.petugas_id = user.id
+    log(db, user, f"pengajuan_{aksi}", f"pengajuan #{id}")
+    db.commit()
+    flash(request, "Pengajuan rekening disetujui." if aksi == "disetujui" else "Pengajuan rekening ditolak.")
+    return go("/rekening")
 
 
 # ---------- TRANSAKSI ----------
@@ -535,6 +740,19 @@ async def transfer(request: Request, user=Depends(require_user), db: Session = D
     if jumlah <= 0:
         return gagal(request, "Jumlah transfer harus lebih dari 0.")
     fee = biaya(db, "transfer")
+    limit = db.scalar(select(LimitTransfer).where(LimitTransfer.nasabah_id == asal.nasabah_id))
+    limit_per = limit.per_transaksi if limit else 10_000_000
+    limit_harian = limit.harian if limit else 50_000_000
+    if jumlah > limit_per:
+        return gagal(request, f"Jumlah transfer melebihi limit per transaksi {limit_per:,}.")
+    mulai_hari = datetime.combine(today(), time.min)
+    sudah = db.scalar(select(func.coalesce(func.sum(Transaksi.jumlah), 0)).where(
+        Transaksi.rekening_id == asal.id,
+        Transaksi.tipe == "transfer_keluar",
+        Transaksi.waktu >= mulai_hari)) or 0
+    sudah = abs(sudah)
+    if sudah + jumlah > limit_harian:
+        return gagal(request, f"Limit transfer harian tersisa {max(limit_harian - sudah, 0):,}.")
     if not sisa_ok(asal, jumlah + fee):
         return gagal(request, f"Saldo tidak cukup. Saldo minimum {asal.jenis.saldo_min:,} harus tersisa.".replace(",", "."))
     kat = int(f["kategori_id"]) if f.get("kategori_id") else None
@@ -612,7 +830,254 @@ def laporan_csv(dari: str = "", sampai: str = "", tipe: str = "", no: str = "",
                         "laporan_mutasi.csv")
 
 
+@app.get("/transaksi/{id}/pdf")
+def transaksi_pdf(id: int, request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    t = db.get(Transaksi, id)
+    if not t or not boleh(user, t.rekening):
+        raise Forbidden()
+    out = io.BytesIO()
+    p = canvas.Canvas(out, pagesize=A4)
+    p.setTitle(f"Bukti transaksi {id}")
+    p.setFillColorRGB(0.07, 0.16, 0.29)
+    p.rect(0, 277 * mm, 210 * mm, 20 * mm, fill=1, stroke=0)
+    p.setFillColorRGB(1, 1, 1)
+    p.setFont("Helvetica-Bold", 18)
+    p.drawString(20 * mm, 287 * mm, "SAKUKU")
+    p.setFont("Helvetica", 10)
+    p.drawRightString(190 * mm, 287 * mm, "Bukti Transaksi")
+    p.setFillColorRGB(0.12, 0.15, 0.18)
+    y = 260 * mm
+    p.setFont("Helvetica-Bold", 13)
+    p.drawString(20 * mm, y, TIPE[t.tipe][0])
+    y -= 12 * mm
+    rows = [
+        ("Nomor referensi", f"SK-{t.id:08d}"),
+        ("Waktu", f"{t.waktu:%d %B %Y, %H:%M}"),
+        ("No. rekening", t.rekening.no_rekening),
+        ("Nasabah", t.rekening.nasabah.nama),
+        ("Keterangan", t.keterangan or "-"),
+        ("Jumlah", f"Rp {abs(t.jumlah):,.0f}".replace(",", ".")),
+        ("Saldo akhir", f"Rp {t.saldo_akhir:,.0f}".replace(",", ".")),
+    ]
+    p.setFont("Helvetica", 11)
+    for label, value in rows:
+        p.setFillColorRGB(0.45, 0.50, 0.55)
+        p.drawString(20 * mm, y, label)
+        p.setFillColorRGB(0.12, 0.15, 0.18)
+        p.drawRightString(190 * mm, y, str(value))
+        y -= 10 * mm
+    p.setStrokeColorRGB(0.82, 0.86, 0.90)
+    p.line(20 * mm, 145 * mm, 190 * mm, 145 * mm)
+    p.setFillColorRGB(0.45, 0.50, 0.55)
+    p.setFont("Helvetica", 9)
+    p.drawString(20 * mm, 35 * mm, "Dokumen ini dibuat oleh sistem Sakuku.")
+    p.drawString(20 * mm, 30 * mm, "Harap simpan sebagai bukti transaksi.")
+    p.showPage()
+    p.save()
+    out.seek(0)
+    return Response(out.read(), media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=bukti_SK-{t.id:08d}.pdf"})
+
+
+@app.get("/profil")
+def profil(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    nasabah = db.get(Nasabah, user.nasabah_id) if user.nasabah_id else None
+    limit = db.scalar(select(LimitTransfer).where(
+        LimitTransfer.nasabah_id == user.nasabah_id)) if user.nasabah_id else None
+    password_protected = bool(re.fullmatch(r"[0-9a-f]{16}\$[0-9a-f]{64}", user.password or ""))
+    security = {
+        "password_protected": password_protected,
+        "phone_registered": bool(nasabah and nasabah.no_hp.strip()),
+        "totp_enabled": user.totp_enabled,
+        "status": "2FA aktif" if user.totp_enabled else (
+            "Belum sepenuhnya aman" if password_protected else "Perlu tindakan"),
+        "status_class": "good" if user.totp_enabled else (
+            "warning" if password_protected else "danger"),
+    }
+    return page(request, "profil.html", user, tab="profil", nasabah=nasabah, limit=limit,
+                security=security)
+
+
+@app.post("/profil/2fa/setup")
+def totp_setup(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    if user.totp_enabled:
+        flash(request, "Verifikasi dua langkah sudah aktif.")
+        return go("/profil")
+    secret = pyotp.random_base32()
+    user.totp_pending_secret = encrypt_totp_secret(secret)
+    user.totp_pending_at = now()
+    log(db, user, "2fa_mulai", "Pengaturan verifikasi dua langkah dimulai")
+    db.commit()
+    return go("/profil/2fa/setup")
+
+
+@app.get("/profil/2fa/setup")
+def totp_setup_page(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    if user.totp_enabled:
+        return go("/profil")
+    try:
+        secret = pending_totp_secret(user)
+    except (InvalidToken, UnicodeDecodeError):
+        user.totp_pending_secret = None
+        user.totp_pending_at = None
+        db.commit()
+        flash(request, "Pengaturan 2FA tidak dapat dibaca. Silakan mulai kembali.", "err")
+        return go("/profil")
+    if not secret:
+        db.commit()
+        flash(request, "Sesi pengaturan 2FA berakhir. Silakan mulai kembali.", "err")
+        return go("/profil")
+    uri = pyotp.TOTP(secret).provisioning_uri(name=user.username, issuer_name="Sakuku")
+    response = page(request, "2fa_setup.html", user, tab="profil", qr=qr_data_uri(uri), secret=secret)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/profil/2fa/confirm")
+async def totp_confirm(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    if user.totp_enabled:
+        flash(request, "Verifikasi dua langkah sudah aktif.")
+        return go("/profil")
+    try:
+        secret = pending_totp_secret(user)
+    except (InvalidToken, UnicodeDecodeError):
+        user.totp_pending_secret = None
+        user.totp_pending_at = None
+        db.commit()
+        flash(request, "Pengaturan 2FA tidak dapat dibaca. Silakan mulai kembali.", "err")
+        return go("/profil")
+    if not secret:
+        db.commit()
+        flash(request, "Sesi pengaturan 2FA berakhir. Silakan mulai kembali.", "err")
+        return go("/profil")
+    form = await request.form()
+    code = re.sub(r"\s+", "", form.get("code", ""))
+    if not re.fullmatch(r"\d{6}", code) or not pyotp.TOTP(secret).verify(code, valid_window=1):
+        flash(request, "Kode authenticator tidak sesuai. Periksa waktu perangkat lalu coba lagi.", "err")
+        return go("/profil/2fa/setup")
+    recovery_codes, recovery_hashes = new_recovery_codes()
+    user.totp_secret = user.totp_pending_secret
+    user.totp_pending_secret = None
+    user.totp_pending_at = None
+    user.totp_recovery_codes = recovery_hashes
+    user.totp_enabled = True
+    log(db, user, "2fa_aktif", "Verifikasi dua langkah diaktifkan")
+    db.commit()
+    response = page(request, "2fa_recovery.html", user, tab="profil",
+                    recovery_codes=recovery_codes)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/profil/2fa/cancel")
+def totp_cancel(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    if not user.totp_enabled and user.totp_pending_secret:
+        user.totp_pending_secret = None
+        user.totp_pending_at = None
+        log(db, user, "2fa_batal", "Pengaturan verifikasi dua langkah dibatalkan")
+        db.commit()
+    return go("/profil")
+
+
+@app.post("/profil/2fa/disable")
+async def totp_disable(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    if not user.totp_enabled or not user.totp_secret:
+        flash(request, "Verifikasi dua langkah belum aktif.", "err")
+        return go("/profil")
+    form = await request.form()
+    if not check_pw(form.get("password", ""), user.password):
+        flash(request, "Password akun tidak sesuai.", "err")
+        return go("/profil")
+    try:
+        valid, _ = verify_totp_or_recovery(
+            user, form.get("code", ""), decrypt_totp_secret(user.totp_secret))
+    except (InvalidToken, UnicodeDecodeError, ValueError):
+        flash(request, "Pengaturan 2FA tidak dapat dibaca. Hubungi petugas.", "err")
+        return go("/profil")
+    if not valid:
+        flash(request, "Kode authenticator atau recovery code tidak sesuai.", "err")
+        return go("/profil")
+    user.totp_enabled = False
+    user.totp_secret = None
+    user.totp_pending_secret = None
+    user.totp_pending_at = None
+    user.totp_recovery_codes = None
+    log(db, user, "2fa_nonaktif", "Verifikasi dua langkah dinonaktifkan")
+    db.commit()
+    flash(request, "Verifikasi dua langkah dinonaktifkan.")
+    return go("/profil")
+
+
+@app.post("/profil")
+async def profil_simpan(request: Request, user=Depends(require_user), db: Session = Depends(get_db)):
+    f = await request.form()
+    lama = f.get("password_lama", "")
+    baru = f.get("password_baru", "")
+    konfirmasi = f.get("password_konfirmasi", "")
+    if lama or baru or konfirmasi:
+        if not check_pw(lama, user.password):
+            flash(request, "Password lama tidak sesuai.", "err")
+            return go("/profil")
+        if len(baru) < 6:
+            flash(request, "Password baru minimal 6 karakter.", "err")
+            return go("/profil")
+        if baru != konfirmasi:
+            flash(request, "Konfirmasi password baru tidak sama.", "err")
+            return go("/profil")
+        user.password = hash_pw(baru)
+    if user.nasabah_id:
+        nasabah = db.get(Nasabah, user.nasabah_id)
+        nasabah.nama = f.get("nama", "").strip()[:100] or nasabah.nama
+        nasabah.alamat = f.get("alamat", "").strip()[:200]
+        nasabah.no_hp = f.get("no_hp", "").strip()[:20]
+        user.nama = nasabah.nama
+    log(db, user, "ubah_profil", "Profil atau password diperbarui")
+    db.commit()
+    flash(request, "Profil berhasil diperbarui.")
+    return go("/profil")
+
+
+@app.get("/limit-transfer")
+def limit_transfer(request: Request, q: str = "", user=Depends(require_admin), db: Session = Depends(get_db)):
+    stmt = select(Nasabah).order_by(Nasabah.nama)
+    if q:
+        stmt = stmt.where(Nasabah.nama.ilike(f"%{q}%") | Nasabah.nik.contains(q))
+    nasabah = db.scalars(stmt).all()
+    limits = {x.nasabah_id: x for x in db.scalars(select(LimitTransfer)).all()}
+    return page(request, "limit.html", user, tab="limit", rows=nasabah, limits=limits, q=q)
+
+
+@app.post("/limit-transfer/{nasabah_id}")
+async def limit_transfer_simpan(nasabah_id: int, request: Request, user=Depends(require_admin),
+                                db: Session = Depends(get_db)):
+    f = await request.form()
+    try:
+        per = max(0, rupiah(f.get("per_transaksi")))
+        harian = max(0, rupiah(f.get("harian")))
+    except (TypeError, ValueError):
+        flash(request, "Limit tidak valid.", "err")
+        return go("/limit-transfer")
+    if per <= 0 or harian <= 0 or harian < per:
+        flash(request, "Limit harian harus lebih besar dari atau sama dengan limit per transaksi.", "err")
+        return go("/limit-transfer")
+    limit = db.scalar(select(LimitTransfer).where(LimitTransfer.nasabah_id == nasabah_id))
+    if limit:
+        limit.per_transaksi = per
+        limit.harian = harian
+    else:
+        db.add(LimitTransfer(nasabah_id=nasabah_id, per_transaksi=per, harian=harian))
+    log(db, user, "ubah_limit", f"Nasabah #{nasabah_id}: {per}/{harian}")
+    db.commit()
+    flash(request, "Limit transfer berhasil diperbarui.")
+    return go("/limit-transfer")
+
+
 @app.get("/audit")
-def audit(request: Request, user=Depends(require_admin), db: Session = Depends(get_db)):
-    return page(request, "audit.html", user, tab="audit",
-                rows=db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(200)).all())
+def audit(request: Request, pagination_page: int = 1, user=Depends(require_admin),
+          db: Session = Depends(get_db)):
+    total = db.scalar(select(func.count(AuditLog.id)))
+    page_no, per_page, pages = halaman(pagination_page, 20, total)
+    rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc())
+                      .limit(per_page).offset((page_no - 1) * per_page)).all()
+    return page(request, "audit.html", user, tab="audit", rows=rows,
+                pagination={"page": page_no, "pages": pages, "per": per_page, "total": total})

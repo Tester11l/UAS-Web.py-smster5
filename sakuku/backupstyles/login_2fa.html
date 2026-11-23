@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block title %}Verifikasi login{% endblock %}
+{% block auth %}<div class="card">
+  <h1>Verifikasi login</h1>
+  <p>Masukkan kode 6 digit dari aplikasi authenticator, atau salah satu recovery code.</p>
+  <form method="post" action="/login/2fa">
+    <label>Kode verifikasi<input name="code" inputmode="numeric" autocomplete="one-time-code" autofocus required></label>
+    <button class="btn" type="submit">Verifikasi dan masuk</button>
+  </form>
+  <p style="margin:16px 0 0"><a href="/logout">Batalkan dan kembali ke login</a></p>
+</div>{% endblock %}

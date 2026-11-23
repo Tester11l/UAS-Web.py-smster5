@@ -1,0 +1,37 @@
+{% extends "base.html" %}{% from "_ui.html" import ico, trx %}{% block title %}Transaksi{% endblock %}
+{% macro kat() %}<label>Kategori<select name="kategori_id"><option value="">—</option>{% for k in kategori %}<option value="{{ k.id }}">{{ k.nama }}</option>{% endfor %}</select></label>{% endmacro %}
+{% block content %}
+<div class="head"><div class="t">{{ ico('swap','sky') }}<h1>Transaksi</h1></div></div>
+{% if admin %}
+<div class="grid2">
+<div class="card transaction-card deposit-card" id="setor"><h2>{{ ico('down','lime') }}Setor tunai</h2>
+  <form class="row" method="post" action="/transaksi/setor">
+    <label>No. rekening<input name="no_rekening" required inputmode="numeric"></label>
+    <label>Jumlah (Rp)<input name="jumlah" required inputmode="numeric" placeholder="100000"></label>
+    {{ kat() }}<label>Keterangan<input name="keterangan"></label>
+    <button class="btn">Setor</button></form>
+  <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Biaya setor: {{ fee.setor|rp }}</p></div>
+<div class="card transaction-card withdraw-card" id="tarik"><h2>{{ ico('up','amber') }}Tarik tunai</h2>
+  <form class="row" method="post" action="/transaksi/tarik">
+    <label>No. rekening<input name="no_rekening" required inputmode="numeric"></label>
+    <label>Jumlah (Rp)<input name="jumlah" required inputmode="numeric" placeholder="50000"></label>
+    {{ kat() }}<label>Keterangan<input name="keterangan"></label>
+    <button class="btn">Tarik</button></form>
+  <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Biaya tarik: {{ fee.tarik|rp }}. Saldo minimum jenis rekening harus tersisa.</p></div>
+</div>
+{% endif %}
+<div class="card transaction-card transfer-card" id="transfer"><h2>{{ ico('swap','sky') }}Transfer antar rekening</h2>
+  {% if admin or punya %}
+  <form class="row" method="post" action="/transaksi/transfer">
+    {% if admin %}<label>Rekening asal<input name="dari" required inputmode="numeric"></label>
+    {% else %}<label>Dari rekening<select name="dari" required>{% for r in punya %}<option value="{{ r.no_rekening }}">{{ r.jenis.nama }} · {{ r.no_rekening }} · {{ r.saldo|rp }}</option>{% endfor %}</select></label>{% endif %}
+    <label>Rekening tujuan<input name="ke" required inputmode="numeric"></label>
+    <label>Jumlah (Rp)<input name="jumlah" required inputmode="numeric" placeholder="25000"></label>
+    {{ kat() }}<label>Keterangan<input name="keterangan"></label>
+    <button class="btn">Kirim</button></form>
+  <p style="color:var(--muted);font-size:13px;margin:10px 0 0">Biaya transfer: {{ fee.transfer|rp }}. Transfer berjalan sebagai satu kesatuan: kalau gagal, saldo tidak berubah.</p>
+  {% else %}<div class="empty">Kamu perlu rekening aktif dulu. <a href="/rekening">Buka rekening</a></div>{% endif %}
+</div>
+<div class="card transaction-card history-card"><h2>{{ ico('clock','mint') }}Transaksi terakhir</h2>
+  {% for t in recent %}{{ trx(t, admin) }}{% else %}<div class="empty">Belum ada transaksi.</div>{% endfor %}</div>
+{% endblock %}

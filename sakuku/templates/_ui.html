@@ -20,5 +20,6 @@
 <div class="trx">{{ ico(m[1], m[2]) }}
   <div class="mid"><b>{{ m[0] }}{% if t.lawan %} {{ 'ke' if t.tipe=='transfer_keluar' else 'dari' }} {{ t.lawan.nasabah.nama }}{% endif %}</b>
   <span>{{ t.waktu|wkt }}{% if rek %} · {{ t.rekening.no_rekening }}{% endif %}{% if t.kategori %} · {{ t.kategori.nama }}{% endif %}{% if t.keterangan %} · {{ t.keterangan }}{% endif %}</span></div>
-  <div class="amt {{ 'in' if t.jumlah>0 }}">{{ '+' if t.jumlah>0 }}{{ t.jumlah|rp }}</div></div>
+  <div class="amt {{ 'in' if t.jumlah>0 }}">{{ '+' if t.jumlah>0 }}{{ t.jumlah|rp }}</div>
+  <a class="pdf-link" href="/transaksi/{{ t.id }}/pdf" title="Unduh bukti PDF">PDF</a></div>
 {% endmacro %}

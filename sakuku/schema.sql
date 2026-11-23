@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS users (
 	password VARCHAR(200) NOT NULL, 
 	role VARCHAR(10) NOT NULL, 
 	nasabah_id INTEGER, 
+	totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+	totp_secret VARCHAR(256),
+	totp_pending_secret VARCHAR(256),
+	totp_pending_at TIMESTAMP WITHOUT TIME ZONE,
+	totp_recovery_codes VARCHAR(2000),
 	PRIMARY KEY (id), 
 	UNIQUE (username), 
 	FOREIGN KEY(nasabah_id) REFERENCES nasabah (id)
@@ -87,4 +92,29 @@ CREATE TABLE IF NOT EXISTS transaksi (
 	FOREIGN KEY(kategori_id) REFERENCES kategori_transaksi (id), 
 	FOREIGN KEY(lawan_id) REFERENCES rekening (id), 
 	FOREIGN KEY(user_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS pengajuan_rekening (
+	id SERIAL NOT NULL,
+	nasabah_id INTEGER NOT NULL,
+	jenis_id INTEGER NOT NULL,
+	status VARCHAR(10) NOT NULL,
+	catatan VARCHAR(300) NOT NULL,
+	dibuat TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+	diproses TIMESTAMP WITHOUT TIME ZONE,
+	petugas_id INTEGER,
+	PRIMARY KEY (id),
+	FOREIGN KEY(nasabah_id) REFERENCES nasabah (id),
+	FOREIGN KEY(jenis_id) REFERENCES jenis_rekening (id),
+	FOREIGN KEY(petugas_id) REFERENCES users (id)
+);
+
+CREATE TABLE IF NOT EXISTS limit_transfer (
+	id SERIAL NOT NULL,
+	nasabah_id INTEGER NOT NULL,
+	per_transaksi BIGINT NOT NULL,
+	harian BIGINT NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE (nasabah_id),
+	FOREIGN KEY(nasabah_id) REFERENCES nasabah (id)
 );

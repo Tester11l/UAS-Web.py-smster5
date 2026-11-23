@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block title %}Aktifkan 2FA{% endblock %}
+{% block content %}
+<div class="head"><div class="t"><div><h1>Aktifkan verifikasi dua langkah</h1><p>Pindai QR dengan aplikasi authenticator pilihan Anda.</p></div></div></div>
+<div class="card totp-card">
+  <ol class="totp-steps">
+    <li>Buka aplikasi authenticator di ponsel, lalu pindai QR berikut.</li>
+    <li>Jika tidak bisa memindai, tambahkan akun secara manual menggunakan kunci di bawah.</li>
+    <li>Masukkan kode 6 digit yang sedang tampil di aplikasi untuk mengaktifkan.</li>
+  </ol>
+  <img class="totp-qr" src="{{ qr }}" alt="QR code untuk menghubungkan aplikasi authenticator">
+  <label class="totp-secret">Kunci manual
+    <code>{{ secret }}</code>
+  </label>
+  <form class="totp-code-form" method="post" action="/profil/2fa/confirm">
+    <label>Kode authenticator<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" autofocus required></label>
+    <button class="btn" type="submit">Konfirmasi dan aktifkan</button>
+  </form>
+  <form method="post" action="/profil/2fa/cancel">
+    <button class="btn sec" type="submit">Batal</button>
+  </form>
+</div>
+{% endblock %}

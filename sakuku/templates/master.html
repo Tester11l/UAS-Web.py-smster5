@@ -30,4 +30,11 @@
   </table></div>
   {% else %}<div class="empty">{{ 'Tidak ada hasil.' if q else 'Belum ada data.' }}</div>{% endif %}
 </div>
+{% if pagination and pagination.pages > 1 %}
+<div class="pagination">
+  {% if pagination.page > 1 %}<a class="btn sec sm" href="/master/{{ name }}?q={{ q }}&pagination_page={{ pagination.page-1 }}&edit={{ edit }}">Sebelumnya</a>{% endif %}
+  <span>Halaman {{ pagination.page }} dari {{ pagination.pages }}</span>
+  {% if pagination.page < pagination.pages %}<a class="btn sec sm" href="/master/{{ name }}?q={{ q }}&pagination_page={{ pagination.page+1 }}&edit={{ edit }}">Berikutnya</a>{% endif %}
+</div>
+{% endif %}
 {% endblock %}

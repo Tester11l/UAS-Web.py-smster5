@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block title %}Recovery code 2FA{% endblock %}
+{% block content %}
+<div class="head"><div class="t"><div><h1>Verifikasi dua langkah aktif</h1><p>Simpan recovery code sebelum meninggalkan halaman ini.</p></div></div></div>
+<section class="card recovery-card">
+  <div class="msg err">Kode ini hanya ditampilkan sekali. Setiap kode hanya dapat digunakan satu kali.</div>
+  <p>Simpan di tempat aman dan terpisah dari ponsel Anda. Jangan bagikan kepada siapa pun.</p>
+  <ul class="recovery-codes">{% for code in recovery_codes %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
+  <a class="btn" href="/profil">Saya sudah menyimpan kode</a>
+</section>
+{% endblock %}
